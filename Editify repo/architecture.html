@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Automated Video Editing Pipeline · Architecture</title>
+<style>
+  :root{
+    --bg:#0D1117;
+    --card:#1F242D;
+    --card-hover:#262D38;
+    --line:#30363D;
+    --text:#E6EDF3;
+    --muted:#9CA3AF;
+    --c-input:#3B82F6;      /* Input / Media          */
+    --c-processing:#10B981; /* Ingestion / Processing */
+    --c-logic:#A855F7;      /* Core Logic / AI        */
+    --c-render:#F59E0B;     /* Render / Outputs       */
+    --c-creative:#EF4444;   /* Guidance / Rules       */
+    --c-stage:#6E7681;
+    --mono:ui-monospace,"SF Mono","Cascadia Code",Consolas,"Liberation Mono",monospace;
+  }
+  html[data-theme="light"]{
+    --bg:#F6F8FA;
+    --card:#FFFFFF;
+    --card-hover:#F3F6FA;
+    --line:#D0D7DE;
+    --text:#1F2328;
+    --muted:#57606A;
+    --c-input:#2563EB;
+    --c-processing:#059669;
+    --c-logic:#9333EA;
+    --c-render:#D97706;
+    --c-creative:#DC2626;
+    --c-stage:#6E7681;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1100px 520px at 72% -8%, rgba(59,130,246,.07), transparent 60%),
+      radial-gradient(900px 420px at 12% 108%, rgba(168,85,247,.05), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font:14px/1.45 Inter,"SF Pro Text","Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;
+    transition:background-color .25s ease,color .25s ease;
+  }
+  html[data-theme="light"] body{
+    background:
+      radial-gradient(1100px 520px at 72% -8%, rgba(37,99,235,.06), transparent 60%),
+      radial-gradient(900px 420px at 12% 108%, rgba(147,51,234,.04), transparent 60%),
+      var(--bg);
+  }
+
+  /* ---------- top bar ---------- */
+  header{
+    max-width:1560px;margin:0 auto;padding:26px 28px 6px;
+    display:flex;flex-wrap:wrap;gap:12px 28px;align-items:flex-end;justify-content:space-between;
+  }
+  .title-block h1{font-size:20px;margin:0;font-weight:600;letter-spacing:.2px}
+  .title-block .sub{color:var(--muted);margin:4px 0 0;font-size:13px}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin:0}
+  .chip{display:inline-flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}
+  .chip i{width:9px;height:9px;border-radius:50%;display:inline-block}
+
+  .theme-btn{
+    margin-left:8px;padding:5px 13px;border-radius:8px;border:1px solid var(--line);
+    background:var(--card);color:var(--muted);font-size:12px;font-family:inherit;cursor:pointer;
+    transition:border-color .15s,color .15s,background-color .25s ease;
+  }
+  .theme-btn:hover{color:var(--text);border-color:color-mix(in srgb,var(--muted) 45%,transparent)}
+  .theme-btn:focus-visible{outline:2px solid var(--muted);outline-offset:2px}
+
+  main{position:relative;max-width:1560px;margin:0 auto;padding:6px 28px 26px}
+  #wires{position:absolute;inset:0;pointer-events:none;overflow:visible;z-index:0}
+  .domain{position:relative;z-index:1}
+  .domain-bar{display:flex;align-items:baseline;gap:12px;margin:20px 0 14px;flex-wrap:wrap}
+  .domain-pill{font-size:11px;letter-spacing:.14em;text-transform:uppercase;padding:5px 13px;border-radius:999px;border:1px solid;font-weight:600;
+    transition:color .25s ease,background-color .25s ease,border-color .25s ease}
+  .domain-pill.tech{color:#7EB3F0;border-color:rgba(59,130,246,.35);background:rgba(59,130,246,.08)}
+  .domain-pill.creative{color:#F08A85;border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.08)}
+  html[data-theme="light"] .domain-pill.tech{color:#2E6CC0;border-color:rgba(37,99,235,.35);background:rgba(37,99,235,.07)}
+  html[data-theme="light"] .domain-pill.creative{color:#C03530;border-color:rgba(220,38,38,.35);background:rgba(220,38,38,.06)}
+  .domain-desc{color:var(--muted);font-size:12px}
+
+  .stage-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;align-items:start}
+  .stage-head{display:flex;align-items:center;gap:11px;padding:10px 13px;border:1px solid var(--line);border-radius:10px;background:rgba(240,246,252,.03);margin-bottom:14px;transition:background-color .25s ease,border-color .25s ease}
+  .stage-num{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:2px 7px;flex:none;font-family:var(--mono)}
+  .stage-name{font-weight:600;font-size:13.5px;display:block}
+  .stage-hint{color:var(--muted);font-size:11.5px;display:block;margin-top:1px}
+  .stage-cards{display:flex;flex-direction:column;gap:12px}
+
+  .node{
+    position:relative;display:block;width:100%;text-align:left;
+    background:var(--card);border:1px solid var(--line);border-left:3px solid var(--cat);
+    border-radius:10px;padding:11px 13px 10px;cursor:pointer;color:var(--text);font:inherit;
+    box-shadow:0 1px 3px rgba(1,4,9,.35);
+    transition:border-color .15s,background-color .25s ease,color .25s ease,opacity .2s,transform .15s,box-shadow .15s;
+  }
+  html[data-theme="light"] .node{box-shadow:0 1px 3px rgba(31,35,40,.12)}
+  .n-top{display:flex;align-items:center;gap:8px}
+  .n-dot{width:8px;height:8px;border-radius:50%;background:var(--cat);box-shadow:0 0 8px var(--cat);flex:none}
+  .n-name{font-weight:600;font-size:13.5px}
+  .n-role{display:block;color:var(--muted);font-size:12px;margin-top:3px}
+  .n-feeds{display:block;color:var(--cat);opacity:.8;font-size:11px;margin-top:6px;font-family:var(--mono)}
+  .node.pivot{border-color:color-mix(in srgb,var(--cat) 45%,transparent)}
+  .node:hover,.node.is-active{
+    background:var(--card-hover);transform:translateY(-1px);
+    border-color:color-mix(in srgb,var(--cat) 60%,transparent);
+    box-shadow:0 0 0 3px color-mix(in srgb,var(--cat) 13%,transparent),0 1px 3px rgba(1,4,9,.35);
+  }
+  .node.is-related{border-color:color-mix(in srgb,var(--cat) 38%,transparent)}
+  .node.is-dim{opacity:.32}
+  .node:focus-visible{outline:2px solid var(--cat);outline-offset:2px}
+
+  .creative-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:24px;align-items:start}
+
+  #wires path.edge{fill:none;stroke-width:1.6;transition:stroke-opacity .15s,stroke-width .15s}
+  #wires path.edge.media{stroke-dasharray:5 5}
+  #wires g.edge-g.lit path.edge{stroke-width:2.6;stroke-opacity:1}
+  #wires g.edge-g.fade path.edge{stroke-opacity:.06}
+  #wires path.flow{fill:none;stroke-width:2.2;stroke-linecap:round;stroke-dasharray:1 13;animation:dash 1.2s linear infinite}
+  @keyframes dash{to{stroke-dashoffset:-14}}
+  @media (prefers-reduced-motion:reduce){#wires path.flow{display:none}.node{transition:none}}
+
+  footer{max-width:1560px;margin:0 auto;padding:0 28px 26px;color:var(--muted);font-size:11.5px}
+  @media (max-width:1120px){.stage-grid{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:660px){
+    .stage-grid{grid-template-columns:1fr}
+    header,main,footer{padding-left:16px;padding-right:16px}
+    header{justify-content:flex-start}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-block">
+    <h1>Automated Video Editing Pipeline</h1>
+    <p class="sub">End-to-end architecture — a technical execution layer driven by a creative guidance layer.</p>
+  </div>
+  <div class="legend" id="legend"></div>
+</header>
+
+<main id="canvas">
+  <svg id="wires" aria-hidden="true"></svg>
+
+  <section class="domain">
+    <div class="domain-bar">
+      <span class="domain-pill tech">Technical Pipeline Layer</span>
+      <span class="domain-desc">Infrastructure · dependencies (FFmpeg / Whisper) · code execution · file I/O · render APIs</span>
+    </div>
+    <div class="stage-grid" id="stageGrid"></div>
+  </section>
+
+  <section class="domain">
+    <div class="domain-bar">
+      <span class="domain-pill creative">Creative Guidance Layer</span>
+      <span class="domain-desc">Style rules · transcription analysis · cut &amp; pacing intent · audio ducking intent — feeds the Logic / Scripting stage</span>
+    </div>
+    <div class="creative-grid" id="creativeGrid"></div>
+  </section>
+</main>
+
+<footer>Hover a module to trace its data flow · click to pin · press Esc to clear</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  var CATS = {
+    input:      { label:"Input / Media" },
+    processing: { label:"Ingestion / Processing" },
+    logic:      { label:"Core Logic / AI" },
+    render:     { label:"Render / Outputs" },
+    creative:   { label:"Guidance / Rules" }
+  };
+
+  var STAGES = [
+    { id:"s1", num:"01", name:"Input Assets",            hint:"raw media & text in" },
+    { id:"s2", num:"02", name:"Ingestion & Processing",  hint:"normalize · probe · transcribe" },
+    { id:"s3", num:"03", name:"Logic / Scripting",       hint:"decisions from data" },
+    { id:"s4", num:"04", name:"Render & Output",         hint:"assemble · encode · verify" }
+  ];
+
+  var NODES = [
+    // 01 — inputs
+    { id:"footage", stage:"s1", cat:"input", name:"Raw Footage",         role:"Camera clips (MP4 / MOV) → clip list" },
+    { id:"audio",   stage:"s1", cat:"input", name:"Voiceover / Audio",   role:"Narration & music WAV → audio track" },
+    { id:"broll",   stage:"s1", cat:"input", name:"B-roll & Stills",     role:"Stock clips + images → media pool" },
+    // 02 — ingestion & processing
+    { id:"ffmpeg",  stage:"s2", cat:"processing", name:"FFmpeg",          role:"Normalize & transcode → edit-safe media" },
+    { id:"scenes",  stage:"s2", cat:"processing", name:"Scene Detector",  role:"PySceneDetect → scene boundaries JSON" },
+    { id:"whisper", stage:"s2", cat:"processing", name:"Whisper",         role:"Audio → transcription JSON (word timestamps)" },
+    { id:"index",   stage:"s2", cat:"processing", name:"Asset Index",     role:"File I/O → manifest.json (durations, checksums)" },
+    // 03 — logic / scripting
+    { id:"orch",    stage:"s3", cat:"logic", name:"Pipeline Orchestrator", role:"Python runner → stage chain + artifacts", pivot:true },
+    { id:"cutplan", stage:"s3", cat:"logic", name:"Cut Planner",           role:"Scenes + transcript → in / out points" },
+    { id:"pacing",  stage:"s3", cat:"logic", name:"Pacing Engine",         role:"Cut rate + beat sync → rhythm plan" },
+    { id:"ducking", stage:"s3", cat:"logic", name:"Audio Ducking Logic",   role:"Music vs voice intent → level plan" },
+    { id:"bmatch",  stage:"s3", cat:"logic", name:"B-roll Matcher",        role:"Transcript keywords → clip picks" },
+    // 04 — render & output
+    { id:"timeline",stage:"s4", cat:"render", name:"Timeline Assembler",  role:"NLE / Resolve API → cuts, b-roll, captions, grade" },
+    { id:"encode",  stage:"s4", cat:"render", name:"Renderer / Encoder",  role:"Timeline → H.264 master (FFmpeg)" },
+    { id:"qgate",   stage:"s4", cat:"render", name:"Quality Gate",        role:"Duration · loudness · captions → pass / fix" },
+    { id:"final",   stage:"s4", cat:"render", name:"Final Deliverable",   role:"video.mp4 + sidecars (.srt, plan JSON)" },
+    // creative guidance layer
+    { id:"style",    stage:"creative", cat:"creative", name:"Style Guidelines",        role:"Look, tone, caption rules → rulebook" },
+    { id:"transana", stage:"creative", cat:"creative", name:"Transcription Analysis",  role:"Keywords, emphasis, sentiment → topics" },
+    { id:"cutlogic", stage:"creative", cat:"creative", name:"Dynamic Cut Logic",       role:"Silence trims, jump cuts, beat-sync intent" },
+    { id:"paceint",  stage:"creative", cat:"creative", name:"Pacing Intent",           role:"Cuts per minute, hold times, energy curve" },
+    { id:"duckint",  stage:"creative", cat:"creative", name:"Audio Ducking Intent",    role:"Music sits under voice · target −18 dB" }
+  ];
+
+  // [fromId, toId, kind] — kind "stage" = macro flow, "media" = bulk media path (dashed)
+  var EDGES = [
+    ["head-s1","head-s2","stage"],["head-s2","head-s3","stage"],["head-s3","head-s4","stage"],
+    ["node-footage","node-ffmpeg"],["node-audio","node-whisper"],["node-broll","node-index"],
+    ["node-ffmpeg","node-scenes"],["node-ffmpeg","node-index"],
+    ["node-scenes","node-orch"],["node-whisper","node-orch"],["node-index","node-orch"],
+    ["node-ffmpeg","node-timeline","media"],
+    ["node-orch","node-cutplan"],["node-orch","node-pacing"],["node-orch","node-ducking"],["node-orch","node-bmatch"],
+    ["node-cutplan","node-timeline"],["node-pacing","node-timeline"],["node-ducking","node-timeline"],["node-bmatch","node-timeline"],
+    ["node-timeline","node-encode"],["node-encode","node-qgate"],["node-qgate","node-final"],
+    ["node-style","node-cutplan"],["node-style","node-pacing"],["node-transana","node-bmatch"],
+    ["node-cutlogic","node-cutplan"],["node-paceint","node-pacing"],["node-duckint","node-ducking"]
+  ];
+
+  var NS = "http://www.w3.org/2000/svg";
+  var main = document.getElementById("canvas");
+  var svg  = document.getElementById("wires");
+  var nodeById = {}, catOf = {};
+  NODES.forEach(function(n){ nodeById[n.id] = n; catOf["node-" + n.id] = n.cat; });
+  STAGES.forEach(function(s){ catOf["head-" + s.id] = "stage"; });
+
+  // ---------- build DOM ----------
+  var legend = document.getElementById("legend");
+  Object.keys(CATS).forEach(function(k){
+    legend.insertAdjacentHTML("beforeend",
+      '<span class="chip"><i style="background:var(--c-' + k + ')"></i>' + CATS[k].label + "</span>");
+  });
+
+  var stageGrid = document.getElementById("stageGrid");
+  STAGES.forEach(function(s){
+    var col = document.createElement("div");
+    col.innerHTML =
+      '<div class="stage-head" id="head-' + s.id + '">' +
+        '<span class="stage-num">' + s.num + "</span>" +
+        "<span><span class=\"stage-name\">" + s.name + "</span>" +
+        '<span class="stage-hint">' + s.hint + "</span></span>" +
+      "</div>" +
+      '<div class="stage-cards" data-stage="' + s.id + '"></div>';
+    stageGrid.appendChild(col);
+  });
+
+  var creativeGrid = document.getElementById("creativeGrid");
+  NODES.forEach(function(n){
+    var host = n.stage === "creative" ? creativeGrid
+             : stageGrid.querySelector('.stage-cards[data-stage="' + n.stage + '"]');
+    if (!host) return;
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "node" + (n.pivot ? " pivot" : "");
+    b.id = "node-" + n.id;
+    b.dataset.id = n.id;
+    b.style.setProperty("--cat", "var(--c-" + n.cat + ")");
+    b.setAttribute("aria-pressed", "false");
+    var feeds = EDGES.filter(function(e){ return e[0] === "node-" + n.id && !e[2]; })
+      .map(function(e){ return (nodeById[e[1].replace("node-","")] || {}).name; })
+      .filter(Boolean);
+    b.innerHTML =
+      '<span class="n-top"><i class="n-dot"></i><span class="n-name">' + n.name + "</span></span>" +
+      '<span class="n-role">' + n.role + "</span>" +
+      (feeds.length ? '<span class="n-feeds">feeds → ' + feeds.join(", ") + "</span>" : "");
+    host.appendChild(b);
+  });
+
+  // ---------- svg helpers ----------
+  function rgba(hex, a){
+    var v = parseInt(hex.slice(1), 16);
+    return "rgba(" + (v >> 16) + "," + ((v >> 8) & 255) + "," + (v & 255) + "," + a + ")";
+  }
+  function cssColor(name){
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#6E7681";
+  }
+  function mk(id, color){
+    var m = document.createElementNS(NS, "marker");
+    m.setAttribute("id", id);
+    m.setAttribute("viewBox", "0 0 10 10");
+    m.setAttribute("refX", "8.5"); m.setAttribute("refY", "5");
+    m.setAttribute("markerWidth", "7"); m.setAttribute("markerHeight", "7");
+    m.setAttribute("orient", "auto-start-reverse");
+    m.setAttribute("markerUnits", "userSpaceOnUse");
+    var p = document.createElementNS(NS, "path");
+    p.setAttribute("d", "M0,0 L10,5 L0,10 z");
+    p.setAttribute("fill", color);
+    m.appendChild(p);
+    return m;
+  }
+  function pathD(a, b){
+    var dx = b.cx - a.cx, dy = b.cy - a.cy;
+    if (Math.abs(dx) > Math.abs(dy) * 1.15 && Math.abs(dx) > 60) {   // horizontal run
+      var sx = dx > 0 ? a.right : a.left, ex = dx > 0 ? b.left : b.right, m = (sx + ex) / 2;
+      return "M" + sx + "," + a.cy + " C" + m + "," + a.cy + " " + m + "," + b.cy + " " + ex + "," + b.cy;
+    }
+    if (dy > 0) {                                                    // target below
+      return "M" + a.cx + "," + a.bottom + " C" + a.cx + "," + (a.bottom + dy / 2) +
+             " " + b.cx + "," + (b.top - dy / 2) + " " + b.cx + "," + b.top;
+    }
+    return "M" + a.cx + "," + a.top + " C" + a.cx + "," + (a.top + dy / 2) +   // target above
+           " " + b.cx + "," + (b.bottom - dy / 2) + " " + b.cx + "," + b.bottom;
+  }
+
+  // ---------- draw all wires ----------
+  function draw(){
+    var r = main.getBoundingClientRect();
+    if (!r.width) return;
+    svg.setAttribute("width",  Math.ceil(r.width));
+    svg.setAttribute("height", Math.ceil(r.height));
+    svg.setAttribute("viewBox", "0 0 " + Math.ceil(r.width) + " " + Math.ceil(r.height));
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    var defs = document.createElementNS(NS, "defs");
+    Object.keys(CATS).forEach(function(k){ defs.appendChild(mk("mk-" + k, cssColor("--c-" + k))); });
+    defs.appendChild(mk("mk-stage", cssColor("--c-stage")));
+    svg.appendChild(defs);
+
+    function rel(el){
+      var b = el.getBoundingClientRect();
+      return {
+        left: b.left - r.left, right: b.right - r.left,
+        top: b.top - r.top, bottom: b.bottom - r.top,
+        cx: b.left - r.left + b.width / 2, cy: b.top - r.top + b.height / 2
+      };
+    }
+    EDGES.forEach(function(e){
+      var s = document.getElementById(e[0]), t = document.getElementById(e[1]);
+      if (!s || !t) return;
+      var kind = e[2] || "data";
+      var color = kind === "stage" ? cssColor("--c-stage") : cssColor("--c-" + catOf[e[0]]);
+      var d = pathD(rel(s), rel(t));
+
+      var g = document.createElementNS(NS, "g");
+      g.setAttribute("class", "edge-g");
+      g.dataset.from = e[0]; g.dataset.to = e[1];
+
+      var base = document.createElementNS(NS, "path");
+      base.setAttribute("class", "edge" + (kind === "media" ? " media" : ""));
+      base.setAttribute("d", d);
+      base.setAttribute("stroke", rgba(color, kind === "stage" ? .5 : .4));
+      base.setAttribute("marker-end", "url(#mk-" + (kind === "stage" ? "stage" : catOf[e[0]]) + ")");
+      g.appendChild(base);
+
+      if (kind !== "stage") {
+        var flow = document.createElementNS(NS, "path");
+        flow.setAttribute("class", "flow");
+        flow.setAttribute("d", d);
+        flow.setAttribute("stroke", rgba(color, .7));
+        g.appendChild(flow);
+      }
+      svg.appendChild(g);
+    });
+    setFocus(pinned); // restore highlight after redraw
+  }
+
+  // ---------- interaction ----------
+  var pinned = null;
+  var allNodes = Array.prototype.slice.call(document.querySelectorAll(".node"));
+
+  function setFocus(id){
+    var near = null, fid = null;
+    if (id) {
+      fid = "node-" + id;              // edges reference full element ids
+      near = {};
+      near[id] = true;
+      EDGES.forEach(function(e){
+        if (e[0] === fid || e[1] === fid) {
+          near[e[0].replace("node-", "")] = true;
+          near[e[1].replace("node-", "")] = true;
+        }
+      });
+    }
+    allNodes.forEach(function(n){
+      var isId = id !== null && n.dataset.id === id;
+      var hit  = !!near && near[n.dataset.id] === true;
+      n.classList.toggle("is-active",  isId);
+      n.classList.toggle("is-related", !isId && hit);
+      n.classList.toggle("is-dim",     !!near && !isId && !hit);
+    });
+    Array.prototype.forEach.call(svg.querySelectorAll("g.edge-g"), function(g){
+      var hitE = !!fid && (g.dataset.from === fid || g.dataset.to === fid);
+      g.classList.toggle("lit", hitE);
+      g.classList.toggle("fade", !!fid && !hitE);
+    });
+  }
+
+  allNodes.forEach(function(n){
+    var id = n.dataset.id;
+    n.addEventListener("mouseenter", function(){ if (!pinned) setFocus(id); });
+    n.addEventListener("mouseleave", function(){ if (!pinned) setFocus(null); });
+    n.addEventListener("focus", function(){ if (!pinned) setFocus(id); });
+    n.addEventListener("blur",  function(){ if (!pinned) setFocus(null); });
+    n.addEventListener("click", function(ev){
+      ev.stopPropagation();
+      pinned = (pinned === id) ? null : id;
+      n.setAttribute("aria-pressed", pinned ? "true" : "false");
+      setFocus(pinned || id);
+    });
+  });
+  document.addEventListener("click", function(){ if (pinned) { pinned = null; setFocus(null); } });
+  document.addEventListener("keydown", function(ev){
+    if (ev.key === "Escape" && pinned) { pinned = null; setFocus(null); }
+  });
+
+  // ---------- light / dark theme ----------
+  var root = document.documentElement;
+  var themeBtn = document.createElement("button");
+  themeBtn.type = "button";
+  themeBtn.className = "theme-btn";
+  themeBtn.addEventListener("click", function(){
+    var next = root.dataset.theme === "light" ? "dark" : "light";
+    root.dataset.theme = next;
+    themeBtn.textContent = next === "light" ? "Dark mode" : "Light mode";
+    try { localStorage.setItem("pipeline-theme", next); } catch (e) {}
+    draw();
+  });
+  try {
+    if (localStorage.getItem("pipeline-theme") === "light") root.dataset.theme = "light";
+  } catch (e) {}
+  themeBtn.textContent = root.dataset.theme === "light" ? "Dark mode" : "Light mode";
+  legend.appendChild(themeBtn);
+
+  // ---------- redraw on size / fonts ----------
+  // shortcut: draw() runs synchronously — rAF alone never fires in hidden/background tabs
+  function queue(){ draw(); }
+  if (window.ResizeObserver) new ResizeObserver(queue).observe(main);
+  window.addEventListener("resize", queue);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(queue);
+  queue();
+  setTimeout(queue, 120); // settle after first layout
+})();
+</script>
+</body>
+</html>
